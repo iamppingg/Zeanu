@@ -166,6 +166,22 @@ app.post('/auth/delete', auth, (req,res) => {
     res.json({ success:true });
 });
 
+// ─── VERIFY TOKEN (usado pelo servidor Minecraft) ─────────────────────────────
+app.post('/auth/verify', (req,res) => {
+    const { username, token } = req.body;
+    if (!username || !token)
+        return res.status(400).json({ success:false, message:'Dados incompletos' });
+    try {
+        const payload = jwt.verify(token, JWT_SECRET);
+        if (payload.username.toLowerCase() === username.toLowerCase()) {
+            return res.json({ success:true });
+        }
+        return res.status(401).json({ success:false, message:'Token nao pertence a esse usuario' });
+    } catch {
+        return res.status(401).json({ success:false, message:'Token invalido ou expirado' });
+    }
+});
+
 // ─── VERSION ──────────────────────────────────────────────────────────────────
 app.get('/version', (req,res) => {
     res.json({ version: GAME_VERSION, downloadUrl: DOWNLOAD_URL });
