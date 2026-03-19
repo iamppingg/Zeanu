@@ -27,6 +27,10 @@ const DB_FILE = path.join(__dirname, 'users.json');
 function readDB()       { try { return JSON.parse(fs.readFileSync(DB_FILE,'utf8')); } catch { return {}; } }
 function writeDB(users) { fs.writeFileSync(DB_FILE, JSON.stringify(users,null,2)); }
 
+// ─── Sessoes ativas (username -> timestamp do login) ─────────────────────────
+const activeSessions = new Map();
+const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutos
+
 // ─── Auth middleware ──────────────────────────────────────────────────────────
 function auth(req, res, next) {
     const h = req.headers.authorization;
@@ -92,6 +96,8 @@ app.post('/auth/login', async (req,res) => {
         return res.status(401).json({ success:false, message:'Senha incorreta' });
 
     const token = jwt.sign({ username: user.username }, JWT_SECRET, { expiresIn:'30d' });
+    // Registrar sessao ativa
+    activeSessions.set(user.username.toLowerCase(), Date.now());
     res.json({ success:true, token, username: user.username });
 });
 
@@ -166,20 +172,14 @@ app.post('/auth/delete', auth, (req,res) => {
     res.json({ success:true });
 });
 
-// ─── VERIFY TOKEN (usado pelo servidor Minecraft) ─────────────────────────────
-app.post('/auth/verify', (req,res) => {
-    const { username, token } = req.body;
-    if (!username || !token)
-        return res.status(400).json({ success:false, message:'Dados incompletos' });
-    try {
-        const payload = jwt.verify(token, JWT_SECRET);
-        if (payload.username.toLowerCase() === username.toLowerCase()) {
-            return res.json({ success:true });
-        }
-        return res.status(401).json({ success:false, message:'Token nao pertence a esse usuario' });
-    } catch {
-        return res.status(401).json({ success:false, message:'Token invalido ou expirado' });
+// ─── CHECK SESSION (usado pelo servidor Minecraft) ───────────────────────────
+app.get('/auth/check/:username', (req, res) => {
+    const key = req.params.username.toLowerCase();
+    const lastSeen = activeSessions.get(key);
+    if (lastSeen && (Date.now() - lastSeen) < SESSION_TIMEOUT_MS) {
+        return res.json({ success: true });
     }
+    return res.status(401).json({ success: false, message: 'Sessao nao encontrada ou expirada' });
 });
 
 // ─── VERSION ──────────────────────────────────────────────────────────────────
