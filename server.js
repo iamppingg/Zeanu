@@ -168,9 +168,20 @@ app.post('/auth/delete', auth, async (req, res) => {
     res.json({ success: true });
 });
 
-// ─── CHECK SESSION ────────────────────────────────────────────────────────────
+// ─── CHECK SESSION (usado pelo servidor Minecraft) ───────────────────────────
 app.get('/auth/check/:username', (req, res) => {
     const key = req.params.username.toLowerCase();
+    // Valida via JWT (persistente, sobrevive a restarts)
+    const h = req.headers.authorization;
+    if (h && h.startsWith('Bearer ')) {
+        try {
+            const decoded = jwt.verify(h.slice(7), JWT_SECRET);
+            if (decoded.username.toLowerCase() === key) {
+                return res.json({ success: true });
+            }
+        } catch {}
+    }
+    // Fallback: sessão em memória
     const lastSeen = activeSessions.get(key);
     if (lastSeen && (Date.now() - lastSeen) < SESSION_TIMEOUT_MS) {
         return res.json({ success: true });
