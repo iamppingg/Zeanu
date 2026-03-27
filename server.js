@@ -6,6 +6,7 @@ const path    = require('path');
 const fs      = require('fs');
 const cors    = require('cors');
 const { MongoClient } = require('mongodb');
+const { Resend } = require('resend');
 
 const app = express();
 app.use(cors());
@@ -16,7 +17,10 @@ const JWT_SECRET   = process.env.JWT_SECRET   || 'troque-isso-aqui';
 const GAME_VERSION = process.env.GAME_VERSION || '1.0.0';
 const DOWNLOAD_URL = process.env.DOWNLOAD_URL || 'https://github.com/SEU-USER/SEU-REPO/releases/latest/download/client.zip';
 const PORT         = process.env.PORT         || 3000;
-const MONGO_URL    = process.env.MONGO_URL; // defina no Render
+const MONGO_URL    = process.env.MONGO_URL;
+const RESEND_KEY   = process.env.RESEND_API_KEY;
+
+const resend = new Resend(RESEND_KEY);
 
 // ─── MongoDB ──────────────────────────────────────────────────────────────────
 let usersCol;
@@ -172,6 +176,46 @@ app.get('/auth/check/:username', (req, res) => {
         return res.json({ success: true });
     }
     return res.status(401).json({ success: false, message: 'Sessao nao encontrada ou expirada' });
+});
+
+// ─── FORGOT PASSWORD ──────────────────────────────────────────────────────────
+app.post('/auth/forgot-password', async (req, res) => {
+    const { email } = req.body;
+    if (!email)
+        return res.status(400).json({ success: false, message: 'Informe o email' });
+
+    const user = await usersCol.findOne({ email: email.toLowerCase() });
+    if (!user)
+        return res.status(404).json({ success: false, message: 'Email não encontrado' });
+
+    // Gera senha temporária aleatória (ex: Xk9mP2)
+    const tempPass = Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 4).toUpperCase();
+    const hashed   = await bcrypt.hash(tempPass, 10);
+
+    await usersCol.updateOne(
+        { email: email.toLowerCase() },
+        { $set: { password: hashed } }
+    );
+
+    await resend.emails.send({
+        from:    'Zeanu <onboarding@resend.dev>',
+        to:      email,
+        subject: 'Recuperação de senha — Zeanu',
+        html: `
+            <div style="font-family:Arial,sans-serif;background:#111;color:#ccc;padding:24px;border-radius:8px;max-width:480px">
+                <h2 style="color:#fff">🎮 Zeanu — Recuperação de Senha</h2>
+                <p>Olá, <b style="color:#fff">${user.username}</b>!</p>
+                <p>Sua senha temporária é:</p>
+                <div style="background:#222;border:1px solid #444;border-radius:6px;padding:14px;text-align:center;font-size:22px;letter-spacing:4px;color:#5F9E27;font-weight:bold;">
+                    ${tempPass}
+                </div>
+                <p style="margin-top:16px">Entre no launcher com essa senha e <b>troque-a em seguida</b> em <i>Options → Minha Conta</i>.</p>
+                <p style="color:#666;font-size:11px">Se você não solicitou isso, ignore este email.</p>
+            </div>
+        `
+    });
+
+    res.json({ success: true });
 });
 
 // ─── VERSION ──────────────────────────────────────────────────────────────────
